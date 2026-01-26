@@ -5,6 +5,17 @@ description: Test PyTorch operator precision - routes to analyze, plan, and exec
 
 # Test Operator Precision
 
+> [!CAUTION]
+> **必须前台交互式执行 - 禁止后台运行**
+> 
+> 执行此 skill 时，**禁止使用后台任务或异步执行**。必须：
+> 1. 在前台逐步执行每个阶段
+> 2. 每个阶段完成后**必须停止并等待用户确认**
+> 3. 所有命令输出必须对用户可见
+> 4. 用户必须能够随时中断或提供反馈
+> 
+> **原因**：此 skill 是交互式工作流，需要用户在每个阶段审核和确认才能继续。
+
 This is the **main entry point** for testing PyTorch operator precision. It orchestrates three phases by routing to specialized skills.
 
 > [!IMPORTANT]
