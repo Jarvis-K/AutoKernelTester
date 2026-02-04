@@ -1,241 +1,158 @@
 ---
 name: test-op
-description: Test PyTorch operator precision - routes to restructure, analyze, plan, and execute skills
+description: PyTorch 算子精度测试入口 - 路由到 restructure、plan、execute 技能
 ---
 
-# Test Operator Precision
+# 算子精度测试
 
 > [!CAUTION]
 > **必须前台交互式执行 - 禁止后台运行**
 > 
-> 执行此 skill 时，**禁止使用后台任务或异步执行**。必须：
+> 执行此技能时必须：
 > 1. 在前台逐步执行每个阶段
-> 2. 每个阶段完成后**必须停止并等待用户确认**
-> 3. 所有命令输出必须对用户可见
-> 4. 用户必须能够随时中断或提供反馈
-> 
-> **原因**：此 skill 是交互式工作流，需要用户在每个阶段审核和确认才能继续。
-
-This is the **main entry point** for testing PyTorch operator precision. It orchestrates up to four phases by routing to specialized skills.
-
-> [!IMPORTANT]
-> **Workflow Overview**
-> 
-> This skill coordinates up to four phases:
-> 0. **Restructure** (optional, for complex operators) → `/restructure-operator`
-> 1. **Analyze** → `/analyze-operator` 
-> 2. **Plan** → `/plan-operator-test`
-> 3. **Execute** → `/execute-operator-test`
-> 
-> Each phase requires user confirmation before proceeding to the next.
+> 2. 每个阶段完成后**停止并等待用户确认**
+> 3. 所有命令输出对用户可见
+> 4. 用户可随时中断或提供反馈
 
 ---
 
-## Complex Operator Detection
-
-> [!WARNING]
-> **Complex Operator Criteria**
-> 
-> An operator is considered **complex** and requires restructuring if ANY of these conditions are met:
-> 
-> | Criteria | Threshold |
-> |----------|-----------|
-> | Total lines of code | > 300 lines |
-> | Number of input tensors | ≥ 5 inputs |
-> | Number of parameters | ≥ 8 parameters |
-> | Number of utility/helper functions | ≥ 3 functions |
-> | Nested function definitions | Any nested functions |
-> | Multiple algorithm variants | > 1 code path |
-> | External dependencies | Custom utils from other files |
-
-When an operator meets any of these criteria, the **Restructure Phase** is mandatory before analysis.
-
----
-
-## Quick Start
-
-When user invokes `/test-op [file]`:
-
-### If operator is complex (no prior restructuring):
-→ Route to `/restructure-operator` with the file path
-
-### If restructured (or operator is simple) and no prior analysis:
-→ Route to `/analyze-operator` with the file path
-
-### If user just confirmed analysis:
-→ Route to `/plan-operator-test`
-
-### If user just approved test plan:
-→ Route to `/execute-operator-test`
-
----
-
-## Phase Routing Logic
+## 工作流程
 
 ```
-User: /test-op sample_operator.py
-  ↓
-Check: Is operator complex?
-  ├─ YES → Check: Has restructuring been done?
-  │         ├─ NO  → Route to /restructure-operator
-  │         │        → STOP (skill handles user confirmation)
-  │         │
-  │         └─ YES → Continue to Analysis
-  │
-  └─ NO (simple operator) → Continue to Analysis
-       ↓
-Check: Has analysis been done?
-  ├─ NO  → Route to /analyze-operator
-  │        → STOP (skill handles user confirmation)
-  │
-  └─ YES (user confirmed analysis)
-       ↓
-     Check: Has test plan been approved?
-       ├─ NO  → Route to /plan-operator-test
-       │        → STOP (skill handles user confirmation)
-       │
-       └─ YES (user approved plan)
-            ↓
-          Route to /execute-operator-test
-            → Run tests
-            → Export CSV
-            → Generate report
-            → Present results
+/test-op [算子文件]
+    │
+    ▼
+┌─────────────────────────────────────┐
+│  阶段 1：重构                        │
+│  → /restructure-operator            │
+│  → 创建模块化包 + 验证              │
+│  → 🔴 停止，请求用户确认            │
+└─────────────────────────────────────┘
+    │ 用户确认 ✓
+    ▼
+┌─────────────────────────────────────┐
+│  阶段 2：规划                        │
+│  → /plan-operator-test              │
+│  → 生成测试计划                     │
+│  → 🔴 停止，请求用户批准            │
+└─────────────────────────────────────┘
+    │ 用户批准 ✓
+    ▼
+┌─────────────────────────────────────┐
+│  阶段 3：执行                        │
+│  → /execute-operator-test           │
+│  → 运行测试 + 导出 CSV + 报告       │
+│  → 🔴 展示结果，询问后续            │
+└─────────────────────────────────────┘
 ```
 
 ---
 
-## How to Determine Current Phase
+## 用户交互模式
 
-0. **Complex operator without restructured files** → Route to `/restructure-operator`
-1. **No analysis report exists** → Route to `/analyze-operator`
-2. **Analysis confirmed but no test plan** → Route to `/plan-operator-test`
-3. **Test plan approved** → Route to `/execute-operator-test`
+### 每阶段结束时的标准询问
 
-When in doubt, ask the user which phase to start from.
-
----
-
-## Instructions for Each Phase
-
-### Phase 0: Restructure (for complex operators only)
-
-Read and follow: `.claude/skills/restructure-operator/SKILL.md`
-
-> [!TIP]
-> The restructure skill uses **incremental extraction** for higher success rates:
-> - Extracts ONE component at a time
-> - Verifies equivalence after EACH extraction
-> - Only proceeds after verification passes
-
-Key outputs:
-- Restructured directory with modular files
-- Restructure report with extraction steps
-- Equivalence verification results
-
-**After restructuring is confirmed, continue to Phase 1.**
-
----
-
-### Phase 1: Analyze (if no analysis yet)
-
-Read and follow: `.claude/skills/analyze-operator/SKILL.md`
-
-Key steps:
-1. Read the operator file (use restructured files if available)
-2. Identify CPU/NPU functions
-3. Classify parameters
-4. Generate analysis report markdown
-5. **STOP and ask user to confirm**
-
-> [!TIP]
-> For restructured operators, analyze each module separately and then synthesize into a single comprehensive report.
-
----
-
-### Phase 2: Plan (after user confirms analysis)
-
-Read and follow: `.claude/skills/plan-operator-test/SKILL.md`
-
-Key steps:
-1. Review confirmed analysis
-2. Design test configurations
-3. Set tolerance thresholds
-4. Generate test plan markdown
-5. **STOP and ask user to approve**
-
----
-
-### Phase 3: Execute (after user approves plan)
-
-Read and follow: `.claude/skills/execute-operator-test/SKILL.md`
-
-Key steps:
-1. Generate test script
-2. Run tests
-3. Export CSV results
-4. Generate final report
-5. Present results to user
-
----
-
-## Example Conversation Flow
-
-### Simple Operator (no restructuring needed)
+**阶段 1 完成后：**
 ```
-User: /test-op simple_relu.py
+✅ 重构完成。请查看：
+- 模块化包：op_<算子名>/
+- 校验 CSV：golden_results_xxx.csv
 
-Agent: [Generates analysis report]
-       Please review the analysis. Is it correct?
+❓ 有以下不确定点需要确认：
+1. [列出不确定的入口映射]
+2. [列出可能需要调整的 NPU wrapper 逻辑]
 
-User: Looks good, continue.
-
-Agent: [Generates test plan]
-       Please review the test plan. Do you approve?
-
-User: Yes, run the tests.
-
-Agent: [Runs tests, generates CSV and report]
-       Tests complete! 45/50 passed. See report and CSV.
+请回复：
+- "继续" - 进入规划阶段
+- "调整 xxx" - 我会根据反馈修改并更新
+- "查看 xxx" - 我会解释具体细节
 ```
 
-### Complex Operator (restructuring required)
+**阶段 2 完成后：**
 ```
-User: /test-op complex_attention.py
+✅ 测试计划已生成：logs/test_op_plan.md
 
-Agent: This operator is complex (450 lines, 7 inputs, 12 parameters).
-       I'll use /restructure-operator to split it into modular files.
-       
-       [Routes to /restructure-operator]
-       [Creates complex_attention_structured/ directory incrementally]
-       [Verifies each extraction step]
-       [Generates restructure report]
-       
-       Please review the restructured code and equivalence report.
+❓ 以下推断可能需要确认：
+1. [执行模式推断：prefill/decode]
+2. [形状覆盖范围]
+3. [容差设置]
 
-User: The structure looks good, continue.
+请回复：
+- "批准" - 开始执行测试
+- "调整 xxx" - 我会修改计划
+- "增加 xxx 场景" - 我会补充用例
+```
 
-Agent: [Generates analysis report based on restructured code]
-       Please review the analysis. Is it correct?
+**阶段 3 完成后：**
+```
+✅ 测试完成：N/M 通过
 
-User: Yes, proceed.
+📊 结果摘要：
+- 通过率：xx%
+- 失败用例：[列表]
+- CSV：golden_results_xxx.csv
+- 报告：logs/test_op_report.md
 
-Agent: [Generates test plan]
-       Please review the test plan. Do you approve?
+❓ 后续建议：
+1. [根据失败情况的建议]
 
-User: Approved.
-
-Agent: [Runs tests, generates CSV and report]
-       Tests complete! 120/128 passed. See report and CSV.
+请回复：
+- "完成" - 结束测试流程
+- "重跑 xxx" - 针对特定 case 重测
+- "查看 xxx" - 查看详细失败信息
 ```
 
 ---
 
-## Important Rules
+## 反馈沉淀机制
 
-1. **Assess complexity first** - Check if restructuring is needed before any other work
-2. **Never skip phases** - Always go in order: (Restructure) → Analyze → Plan → Execute
-3. **Route to specialized skills** - Each phase has a dedicated skill with detailed instructions
-4. **Always wait for user confirmation** between phases
-5. **Generate markdown artifacts** for restructure report, analysis report, and test plan
-6. **Export CSV** with test results in Execute phase
+用户的每次反馈都会被记录并更新到对应产物中：
+
+| 用户反馈 | 沉淀位置 |
+|---------|---------|
+| 入口映射调整 | `test_cases.py` 中的 entry 配置 |
+| 形状建议 | `logs/test_op_plan.md` 更新覆盖轴 |
+| 容差调整 | `test_cases.py` 中的 tols 配置 |
+| 场景补充 | `test_cases.py` 添加新 case |
+| 分支参数 | `logs/test_op_plan.md` 更新参数表 |
+
+---
+
+## 各阶段详细说明
+
+### 阶段 1：重构
+
+阅读：`.claude/skills/restructure-operator/SKILL.md`
+
+- 创建 `op_<算子名>/` 模块化包
+- 拆分为：utils.py、cpu.py、npu.py、api.py
+- 设置 Golden 测试框架
+- 使用 python3 验证（失败自动修复）
+- 导出 CSV 校验结果
+
+### 阶段 2：规划
+
+阅读：`.claude/skills/plan-operator-test/SKILL.md`
+
+- 基于参数说明推断执行模式
+- 生成 prefill/decode 测试场景
+- 设置覆盖轴与容差
+- 输出 `logs/test_op_plan.md`
+
+### 阶段 3：执行
+
+阅读：`.claude/skills/execute-operator-test/SKILL.md`
+
+- 生成 `test_cases.py`
+- 运行 `python -m op_<算子名>.test`
+- 输出测试报告与 CSV
+
+---
+
+## 重要规则
+
+1. **始终从重构开始** - 每个算子先经过重构
+2. **不跳过阶段** - 按顺序：重构 → 规划 → 执行
+3. **阶段之间等待用户确认**
+4. **不确定的点主动询问用户**
+5. **用户反馈沉淀到产物中**

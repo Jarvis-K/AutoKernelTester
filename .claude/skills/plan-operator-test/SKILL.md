@@ -1,154 +1,144 @@
 ---
 name: plan-operator-test
-description: Generate a test plan for an analyzed PyTorch operator
+description: 基于参数说明自动推断 prefill/decode 测试计划
 ---
 
-# Plan Operator Test
+# 操作符测试规划
 
-Generate a comprehensive test plan for an operator that has been analyzed.
-
-> [!IMPORTANT]
-> This is **Step 2 of 3** in the operator testing workflow.
-> 
-> **Prerequisite**: User must have confirmed the analysis from `/analyze-operator`
-> 
-> After this skill completes, tell the user:
-> **"Use `/execute-operator-test` to run the tests after approving the plan."**
+基于用户提供的 **参数说明（param_spec）** 自动推断测试计划。
 
 ---
 
-## Input
+## 输入要求
 
-- Confirmed analysis report from Step 1
-- Any user feedback or parameter specifications
+用户需提供参数说明，包含：
+- 参数名
+- 参数类型（int/float/bool/enum/tensor/optional）
+- 参数含义简述
 
 ---
 
-## Steps
+## 自动推断逻辑
 
-### 1. Review Analysis
+### 执行模式推断
 
-Check what operator type and parameters were identified in the analysis report.
+| 信号词 | 推断模式 |
+|-------|---------|
+| `start_pos` / `cache` / `kv` / `state` | decode |
+| `seq_len` / `cu_seqlens` / `prefill_length` | prefill |
+| 无状态/无序列 | 简单场景 |
 
-### 2. Select Test Configurations
+### 形状轴推断
 
-Based on operator type, select appropriate test configurations:
+自动识别：batch_size、seq_len、head_dim、hidden_size 等
 
-#### Input Tensor Shapes
+默认值（若未指定）：
+- B: [1, 2]
+- S: [1, 128]
+- decode_step: [1, 8]
 
-| Operator Type | Recommended Shapes |
-|---------------|-------------------|
-| elementwise | `(1,), (32,), (4, 64), (2, 3, 224, 224)` |
-| reduction | `(1024,), (4, 256), (2, 32, 128)` |
-| matmul | `(1, 512, 4096), (2, 1024, 4096), (1, 2048, 4096)` |
-| norm | `(1, 512, 768), (1, 2048, 4096), (2, 1024, 4096)` |
-| attention | `(1, 32, 512, 128), (1, 32, 2048, 128)` |
-| conv | `(1, 3, 32, 32), (4, 64, 56, 56), (2, 128, 14, 14)` |
+### 分支参数推断
 
-#### Batch Size Prior
-```python
-# Always test these batch sizes for thorough coverage
-BATCH_SIZES = [1, 2, 4, 8, 16, 32, 48]
+- bool → 覆盖 [True, False]
+- enum → 覆盖 2-3 个典型值
+- 连续参数 → 覆盖 [default, small, large]
+
+---
+
+## 用户交互模式
+
+### 推断完成后的确认
+
+```
+📋 测试计划已生成：logs/test_op_plan.md
+
+推断结果：
+- 执行模式：prefill + decode
+- 形状覆盖：B=[1,2], S=[1,128], step=[1,8]
+- 数据类型：fp16, bf16, fp32
+- 分支参数：use_cache=[True,False], causal=[True,False]
+
+❓ 以下推断可能需要确认：
+
+1. 执行模式推断
+   - 检测到 `start_pos` 参数 → 推断支持 decode
+   - 这是否正确？
+
+2. 形状范围
+   - seq_len 最大设为 128
+   - 是否需要覆盖更长序列？
+
+3. 容差设置
+   - fp16: atol=1e-2, rtol=1e-2
+   - 是否需要调整？
+
+请回复：
+- "批准" - 开始执行测试
+- "调整 seq_len 到 512" - 我会更新计划
+- "增加 xxx 场景" - 我会补充
 ```
 
-> [!TIP]
-> When generating test shapes, vary the batch dimension using the above values.
-> For example, for a norm operator with shape `(B, S, H)`:
-> - `(1, 512, 768)`, `(2, 512, 768)`, `(4, 512, 768)`, ..., `(48, 512, 768)`
+---
 
-#### Data Types
-```python
-dtypes = [torch.float32, torch.float16, torch.bfloat16]
-```
+## 测试场景生成
 
-#### Value Patterns
-```python
-patterns = ["random", "zeros", "ones", "very_small", "very_large", "mixed_sign"]
-```
+### Prefill 场景
 
-### 3. Set Tolerance Thresholds
+- P0_minimal: B=1, S=1 (sanity check)
+- P1_typical: B=1, S=128 (典型场景)
+- P2_boundary: 边界值测试
 
-| Operator Type | float32 rtol/atol | float16 rtol/atol | bfloat16 rtol/atol |
-|--------------|-------------------|-------------------|---------------------|
-| Elementwise | 1e-5 / 1e-8 | 1e-3 / 1e-4 | 1e-2 / 1e-3 |
-| Reduction | 1e-4 / 1e-6 | 1e-3 / 1e-4 | 1e-2 / 1e-3 |
-| MatMul | 1e-4 / 1e-6 | 1e-3 / 1e-4 | 1e-2 / 1e-3 |
-| Normalization | 1e-3 / 1e-5 | 1e-2 / 1e-4 | 5e-2 / 1e-3 |
-| Attention | 1e-3 / 1e-4 | 1e-2 / 1e-3 | 5e-2 / 1e-2 |
+### Decode 场景
 
-### 4. Generate Test Plan
+- D0_single_step: B=1, step=1
+- D1_multi_step: step=8 (状态增长)
+- D2_multi_batch: B=2, step=8
 
-Create a markdown artifact:
+### 异常场景（若有限制）
 
-```markdown
-# Test Plan: [OPERATOR_NAME]
+- EX_invalid_shape: 测试形状限制
 
-## Test Summary
-| Category | Count |
-|----------|-------|
-| Shapes | X |
-| Dtypes | Y |
-| Patterns | Z |
-| **Total Tests** | **N** |
+---
 
-## Test Configurations
+## 容差策略
 
-### Input Tensor: `[param_name]`
-| Shapes | Dtypes | Patterns |
-|--------|--------|----------|
-| `[(1,3,32,32), ...]` | `[float32, float16]` | `[random, zeros]` |
-
-### Algorithm Parameters
-| Parameter | Test Values |
-|-----------|-------------|
-| eps | `[1e-5, 1e-6, 1e-8]` |
-
-## Tolerance Settings
-| Dtype | rtol | atol |
+| dtype | atol | rtol |
 |-------|------|------|
-| float32 | 1e-5 | 1e-8 |
-| float16 | 1e-3 | 1e-4 |
-| bfloat16 | 1e-2 | 1e-3 |
+| fp32 | 1e-6 | 1e-6 |
+| fp16 | 1e-2 | 1e-2 |
+| bf16 | 2e-2 | 2e-2 |
 
-## Edge Cases
-- [ ] Single element tensor
-- [ ] Non-contiguous tensor
-- [ ] Very large values
-- [ ] Very small values
-
-## Estimated Runtime
-~N test cases, approximately M seconds
-```
-
-### 5. Request User Approval
-
-Use `notify_user` with:
-
-```
-I've generated the test plan. Please review:
-
-1. Are the test shapes appropriate?
-2. Should any test cases be added or removed?
-3. Are the tolerance settings correct?
-
-**Next step:** After approval, use `/execute-operator-test` to run the tests.
-```
+若涉及 softmax/norm → 自动放宽。
 
 ---
 
-## Output
+## 输出产物
 
-- Test plan markdown file
-- User approval request
+- `logs/test_op_plan.md` - 中文测试计划
+- 结构化 CaseSpec（供 execute 阶段使用）
 
 ---
 
-## LLM Operator Shape Reference
+## 反馈沉淀
 
-For LLM operators, use these shape guidelines:
+用户反馈将更新到计划中：
 
-| Model Size | batch | seq_len | hidden | heads | head_dim |
-|------------|-------|---------|--------|-------|----------|
-| Small (125M) | 1-8 | 128-512 | 768 | 12 | 64 |
-| Medium (1-3B) | 1-4 | 512-2048 | 2048 | 16-20 | 128 |
-| Large (7-13B) | 1-2 | 1024-4096 | 4096 | 32-40 | 128 |
+| 反馈类型 | 更新位置 |
+|---------|---------|
+| 执行模式修正 | 覆盖轴表 |
+| 形状调整 | shapes 配置 |
+| 容差调整 | tolerance 配置 |
+| 场景补充 | CaseSpec 列表 |
+| 分支参数 | branch_params 表 |
+
+---
+
+## 后续步骤
+
+```
+计划已保存。
+
+下一步：使用 `/execute-operator-test` 执行测试。
+
+或者回复调整建议，我会更新计划后重新展示。
+```

@@ -1,216 +1,150 @@
 ---
 name: execute-operator-test
-description: Execute precision tests for an approved operator test plan and generate results
+description: 生成测试用例、执行 Golden 测试、输出中文报告
 ---
 
-# Execute Operator Test
+# 执行操作符测试
 
-Execute precision tests based on an approved test plan and generate comprehensive results.
-
-> [!IMPORTANT]
-> This is **Step 3 of 3** in the operator testing workflow.
-> 
-> **Prerequisite**: User must have approved the test plan from `/plan-operator-test`
+从测试计划生成用例，运行 Golden 测试，输出详细报告。
 
 ---
 
-## Input
+## 前置条件
 
-- Approved test plan from Step 2
-- Original operator file path
+- 已完成 `/restructure-operator`（模块化包 + Golden 框架）
+- 已完成 `/plan-operator-test`（测试计划 `logs/test_op_plan.md`）
 
 ---
 
-## Steps
+## 执行步骤
 
-### 1. Generate Test Script
+### 步骤一：生成 test_cases.py
 
-Create a self-contained Python test script:
+根据 `logs/test_op_plan.md` 中的 CaseSpec，更新 `op_<opname>/test_cases.py`
 
-```python
-#!/usr/bin/env python3
-"""Precision test for [OPERATOR_NAME]"""
+### 步骤二：执行测试
 
-import torch
-import csv
-import json
-from typing import Dict, List, Any
-
-# Import user's operator (adjust path as needed)
-# from [module] import cpu_func, npu_func
-
-# Test configurations (from approved plan)
-SHAPES = [...]
-DTYPES = [torch.float32, torch.float16, torch.bfloat16]
-PATTERNS = ["random", "zeros", "very_small"]
-
-TOLERANCES = {
-    torch.float32: {"rtol": 1e-5, "atol": 1e-8},
-    torch.float16: {"rtol": 1e-3, "atol": 1e-4},
-    torch.bfloat16: {"rtol": 1e-2, "atol": 1e-3},
-}
-
-def generate_tensor(shape, dtype, pattern):
-    """Generate test tensor with specified pattern."""
-    if pattern == "random":
-        return torch.randn(shape, dtype=dtype)
-    elif pattern == "zeros":
-        return torch.zeros(shape, dtype=dtype)
-    elif pattern == "ones":
-        return torch.ones(shape, dtype=dtype)
-    elif pattern == "very_small":
-        return torch.randn(shape, dtype=dtype) * 1e-7
-    elif pattern == "very_large":
-        return torch.randn(shape, dtype=dtype) * 1e5
-    else:
-        return torch.randn(shape, dtype=dtype)
-
-def compute_metrics(ref, test):
-    """Compute precision metrics."""
-    ref = ref.float().cpu()
-    test = test.float().cpu()
-    diff = torch.abs(ref - test)
-    denom = torch.abs(ref).clamp(min=1e-8)
-    return {
-        "max_abs_diff": diff.max().item(),
-        "max_rel_diff": (diff / denom).max().item(),
-        "mean_abs_diff": diff.mean().item(),
-        "mse": torch.mean((ref - test) ** 2).item(),
-    }
-
-def run_tests():
-    results = {"total": 0, "passed": 0, "failed": 0, "errors": 0, "details": []}
-    
-    for shape in SHAPES:
-        for dtype in DTYPES:
-            for pattern in PATTERNS:
-                results["total"] += 1
-                config = {"shape": shape, "dtype": str(dtype), "pattern": pattern}
-                
-                try:
-                    tensor = generate_tensor(shape, dtype, pattern)
-                    # Run reference and test implementations
-                    # ref_out = cpu_func(tensor)
-                    # test_out = npu_func(tensor.npu()).cpu()
-                    
-                    # metrics = compute_metrics(ref_out, test_out)
-                    # tol = TOLERANCES[dtype]
-                    # passed = metrics["max_abs_diff"] <= tol["atol"] or metrics["max_rel_diff"] <= tol["rtol"]
-                    
-                    # Placeholder - replace with actual test
-                    passed = True
-                    metrics = {"max_abs_diff": 0, "max_rel_diff": 0}
-                    
-                    if passed:
-                        results["passed"] += 1
-                    else:
-                        results["failed"] += 1
-                    
-                    results["details"].append({
-                        "config": config,
-                        "passed": passed,
-                        "metrics": metrics
-                    })
-                except Exception as e:
-                    results["errors"] += 1
-                    results["details"].append({
-                        "config": config,
-                        "passed": False,
-                        "error": str(e)
-                    })
-    
-    return results
-
-if __name__ == "__main__":
-    results = run_tests()
-    print(f"Results: {results['passed']}/{results['total']} passed")
-```
-
-### 2. Run Tests
-
-Execute the generated script:
 ```bash
-python test_[operator_name].py
+python -m op_<opname>.test
 ```
 
-### 3. Export CSV Results
+- 输出保存到：`logs/test_op_run.log`
+- CSV 结果：`golden_results_<timestamp>.csv`
 
-Generate a CSV file with all test results:
+### 步骤三：生成报告
 
-```python
-def export_csv(results, path):
-    with open(path, 'w', newline='') as f:
-        writer = csv.DictWriter(f, fieldnames=[
-            'test_id', 'shape', 'dtype', 'pattern', 
-            'status', 'max_abs_diff', 'max_rel_diff', 'mse', 'error'
-        ])
-        writer.writeheader()
-        for i, d in enumerate(results['details']):
-            writer.writerow({
-                'test_id': i + 1,
-                'shape': str(d['config']['shape']),
-                'dtype': d['config']['dtype'],
-                'pattern': d['config']['pattern'],
-                'status': 'PASS' if d['passed'] else ('ERROR' if 'error' in d else 'FAIL'),
-                'max_abs_diff': d.get('metrics', {}).get('max_abs_diff', ''),
-                'max_rel_diff': d.get('metrics', {}).get('max_rel_diff', ''),
-                'mse': d.get('metrics', {}).get('mse', ''),
-                'error': d.get('error', '')
-            })
+输出 `logs/test_op_report.md`（中文）
+
+---
+
+## 用户交互模式
+
+### 执行完成后的报告
+
+```
+✅ 测试完成
+
+📊 结果摘要：
+- 总用例：N
+- 通过：X（xx%）
+- 失败：Y
+
+覆盖情况：
+- 模式：prefill ✓, decode ✓
+- dtype：fp16 ✓, bf16 ✓, fp32 ✓
+- 分支参数：use_cache ✓, causal ✓
+
+❓ 失败用例分析（若有）：
+
+1. D1_multi_step
+   - 失败类型：numeric mismatch
+   - max_diff：0.05（超出 atol=0.01）
+   - 建议：可能需要放宽容差或检查算法差异
+
+2. P2_boundary
+   - 失败类型：shape mismatch
+   - 期望：(2, 128, 64)，实际：(2, 64, 128)
+   - 建议：检查 transpose 逻辑
+
+请回复：
+- "完成" - 结束测试流程
+- "放宽 D1 容差到 0.1" - 我会调整并重跑
+- "查看 P2 详情" - 我会展示详细对比
+- "重跑失败用例" - 只重跑失败的
 ```
 
-**CSV Format:**
-```csv
-test_id,shape,dtype,pattern,status,max_abs_diff,max_rel_diff,mse,error
-1,"(1,3,32,32)",torch.float32,random,PASS,1.2e-7,3.4e-6,1.1e-14,
-2,"(4,64,56,56)",torch.float16,zeros,PASS,0.0,0.0,0.0,
-3,"(16,128,14,14)",torch.float32,very_large,FAIL,5.6e-3,2.1e-2,3.2e-5,
-```
+---
 
-### 4. Generate Final Report
+## 失败分类
 
-Create a comprehensive markdown report:
+| 类型 | 说明 | 建议 |
+|-----|------|-----|
+| import_fail | 导入失败 | 检查绝对导入 |
+| baseline_error | 原始算子报错 | 检查输入有效性 |
+| numeric_mismatch | 数值差异 | 放宽容差或检查算法 |
+| shape_mismatch | 形状不匹配 | 检查 reshape/transpose |
+| dtype_mismatch | 类型不匹配 | 检查类型转换 |
+| exception_mismatch | 异常不一致 | 检查异常处理 |
+
+---
+
+## 输出产物
+
+| 文件 | 说明 |
+|-----|------|
+| `op_<opname>/test_cases.py` | 测试用例（已更新） |
+| `logs/test_op_run.log` | 运行日志 |
+| `logs/test_op_report.md` | 中文报告 |
+| `golden_results_<ts>.csv` | 详细结果 |
+
+---
+
+## 报告结构
 
 ```markdown
-# Precision Test Report: [OPERATOR_NAME]
+# 测试报告：[算子名]
 
-## Summary
-| Metric | Value |
-|--------|-------|
-| Total Tests | N |
-| Passed | X |
-| Failed | Y |
-| Errors | Z |
-| Pass Rate | P% |
-| CSV Export | `[operator]_results.csv` |
+## 运行信息
+- 算子：xxx
+- 计划：logs/test_op_plan.md
+- 命令：python -m op_xxx.test
+- 时间：2024-xx-xx
+- 结果：N/M 通过
 
-## Results by Dtype
-| Dtype | Passed | Failed | Pass Rate |
-|-------|--------|--------|-----------|
-| float32 | X | Y | P% |
-| float16 | X | Y | P% |
-| bfloat16 | X | Y | P% |
+## 覆盖概览
+- 模式：prefill ✓, decode ✓
+- dtype：[列表]
+- 分支参数：[列表]
 
-## Failed Tests
-[List of failed test configurations with metrics]
+## 失败摘要
+[若有失败，详细列出]
 
-## Recommendations
-[Based on results]
+## 复现方式
+python -m op_xxx.test
+
+## 结论
+PASS / FAIL（需修复后复测）
 ```
-
-### 5. Present Results
-
-Use `notify_user` to present:
-- Test summary
-- Link to full report
-- Link to CSV file
-- Any recommendations
 
 ---
 
-## Output
+## 反馈沉淀
 
-- Test script file
-- CSV results file
-- Final report markdown
-- Summary to user
+| 反馈类型 | 更新位置 |
+|---------|---------|
+| 容差调整 | `test_cases.py` tols |
+| 重跑请求 | 执行特定 case |
+| 问题分析 | `logs/test_op_report.md` |
+
+---
+
+## 停止条件
+
+完成后停止，不继续修改算子实现。
+
+若需修复，提示用户：
+```
+测试发现差异，建议检查 npu.py 中的 xxx 逻辑。
+
+修复后，使用 `/execute-operator-test` 重新测试。
+```
