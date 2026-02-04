@@ -19,7 +19,6 @@
 
 ```
 .claude/skills/
-├── README.md                    # 本文档
 ├── test-op/                     # 🎮 主入口技能
 │   └── SKILL.md
 ├── restructure-operator/        # 🔧 重构技能
