@@ -180,6 +180,26 @@ python test_<opname>.py
 3. 重新运行验证
 4. 重复直至通过
 
+> [!IMPORTANT]
+> **修正原则**
+> 
+> 1. **不修改目标算子代码** - 只修改测试文件 `test_<opname>.py`
+> 2. **从原实现对比推理** - 对比 `__main__` 和测试代码的差异：
+>    - 输入张量的构造方式是否一致（shape、dtype、device）
+>    - 随机种子是否相同
+>    - 函数调用参数是否完整
+>    - 额外的预处理/后处理是否遗漏
+> 3. **逐步定位** - 先打印中间结果对比，缩小差异范围
+
+**对比推理示例**：
+```python
+# 原 __main__ 的调用
+out = custom_layer_norm_cpu(x, normalized_shape, weight, bias, eps=1e-5)
+
+# 测试代码的调用 - 检查是否遗漏 eps 参数
+out = cpu_func(*args, **kwargs)  # eps 是否传入？
+```
+
 > [!CAUTION]
 > **最多尝试 5 次**。如仍不通过，向用户报告问题并请求帮助。
 
