@@ -40,6 +40,7 @@ description: 编写测试文件，迭代验证直至复现原测试
 ```json
 {
   "operator": "<opname>",
+  "timeout": 60,
   "tolerance": {
     "atol": 1e-5,
     "rtol": 1e-5
@@ -57,6 +58,13 @@ description: 编写测试文件，迭代验证直至复现原测试
       "batch_size": 1,
       "seq_len": 16,
       "hidden_size": 64
+    },
+    {
+      "name": "large_with_custom_timeout",
+      "batch_size": 8,
+      "seq_len": 512,
+      "hidden_size": 512,
+      "timeout": 120
     }
   ]
 }
@@ -137,17 +145,78 @@ def compare(cpu_out, npu_out):
         return "PASS", max_diff
     return "FAIL", max_diff
 
+# ============ 超时保护 ============
+from multiprocessing import Process, Queue
+import time
+
+def run_with_timeout(func, timeout, *args, **kwargs):
+    """
+    使用多进程运行函数，超时则终止
+    
+    Args:
+        func: 要执行的函数
+        timeout: 超时时间（秒）
+        *args, **kwargs: 函数参数
+    
+    Returns:
+        (success, result) - success=False 表示超时
+    """
+    def worker(q, func, args, kwargs):
+        try:
+            result = func(*args, **kwargs)
+            q.put(("success", result))
+        except Exception as e:
+            q.put(("error", str(e)))
+    
+    q = Queue()
+    p = Process(target=worker, args=(q, func, args, kwargs))
+    p.start()
+    p.join(timeout)
+    
+    if p.is_alive():
+        p.terminate()
+        p.join()
+        return False, None  # 超时
+    
+    if not q.empty():
+        status, result = q.get()
+        if status == "success":
+            return True, result
+        else:
+            return False, result  # 异常
+    
+    return False, None
+
+TIMEOUT = CONFIG.get("timeout", 60)  # 默认 60 秒超时
+
 # ============ 运行测试 ============
+def run_single_case(cfg):
+    """运行单个测试用例"""
+    cfg = cfg.copy()
+    name = cfg.pop("name")
+    timeout = cfg.pop("timeout", TIMEOUT)
+    
+    # CPU 测试
+    success, cpu_out = run_with_timeout(run_cpu, timeout, **cfg)
+    if not success:
+        return {"name": name, "status": "TIMEOUT", "diff": None, **cfg}
+    
+    # NPU 测试
+    success, npu_out = run_with_timeout(run_npu, timeout, **cfg)
+    if not success:
+        return {"name": name, "status": "TIMEOUT", "diff": None, **cfg}
+    
+    status, diff = compare(cpu_out, npu_out)
+    return {"name": name, "status": status, "diff": diff, **cfg}
+
 def run_all():
     results = []
     for cfg in CONFIG["test_cases"]:
-        cfg = cfg.copy()
-        name = cfg.pop("name")
-        cpu_out = run_cpu(**cfg)
-        npu_out = run_npu(**cfg)
-        status, diff = compare(cpu_out, npu_out)
-        print(f"[{name}] {status}" + (f" (diff={diff:.2e})" if diff else ""))
-        results.append({"name": name, "status": status, "diff": diff, **cfg})
+        result = run_single_case(cfg)
+        status = result["status"]
+        diff = result.get("diff")
+        print(f"[{result['name']}] {status}" + (f" (diff={diff:.2e})" if diff else ""))
+        results.append(result)
     return results
 
 if __name__ == "__main__":
