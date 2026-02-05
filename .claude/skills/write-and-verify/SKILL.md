@@ -16,6 +16,13 @@ description: 编写测试文件，迭代验证直至复现原测试
 
 ---
 
+## 输出产物
+
+- `test_<opname>.py` - 测试文件
+- `logs/verify_result.md` - 验证结果文档
+
+---
+
 ## 核心设计：输入抽象化
 
 > [!IMPORTANT]

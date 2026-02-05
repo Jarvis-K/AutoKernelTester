@@ -62,9 +62,9 @@ description: 算子精度测试入口 - 四阶段工作流
 
 | 阶段 | Skill | 输出 |
 |------|-------|------|
-| 1. 分析 | `/analyze-operator` | 入口函数 + `__main__` 逻辑 |
+| 1. 分析 | `/analyze-operator` | `logs/analyze_result.md` |
 | 2. 规划 | `/plan-and-confirm` | `logs/test_plan.md` |
-| 3. 编写验证 | `/write-and-verify` | `test_<opname>.py` (baseline 通过) |
+| 3. 编写验证 | `/write-and-verify` | `test_<opname>.py` + `logs/verify_result.md` |
 | 4. 扩展报告 | `/extend-and-report` | CSV + `logs/test_report.md` |
 
 ---
@@ -148,9 +148,11 @@ TEST_CONFIGS = [
 
 ## 产物汇总
 
-| 产物 | 说明 |
-|------|------|
-| `test_<opname>.py` | 测试文件（输入抽象化） |
-| `logs/test_plan.md` | 测试计划 |
-| `logs/test_report.md` | 测试报告 |
-| `results_<opname>_<ts>.csv` | 详细测试结果 |
+| 产物 | 阶段 | 说明 |
+|------|------|------|
+| `logs/analyze_result.md` | 分析 | 分析结果 |
+| `logs/test_plan.md` | 规划 | 测试计划 |
+| `test_<opname>.py` | 编写验证 | 测试文件 |
+| `logs/verify_result.md` | 编写验证 | 验证结果 |
+| `results_<opname>_<ts>.csv` | 扩展报告 | 详细测试结果 |
+| `logs/test_report.md` | 扩展报告 | 测试报告 |
