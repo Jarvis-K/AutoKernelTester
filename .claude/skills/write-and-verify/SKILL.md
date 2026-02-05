@@ -19,16 +19,48 @@ description: 编写测试文件，迭代验证直至复现原测试
 ## 输出产物
 
 - `test_<opname>.py` - 测试文件
+- `test_config.json` - 测试配置文件
 - `logs/verify_result.md` - 验证结果文档
 
 ---
 
-## 核心设计：输入抽象化
+## 核心设计：输入抽象化 + 配置分离
 
 > [!IMPORTANT]
-> **所有输入通过 `make_inputs()` 函数构造**
+> 1. **所有输入通过 `make_inputs()` 函数构造**
+> 2. **配置写入单独的 `test_config.json` 文件**
 > 
-> 不同测试用例仅改变配置参数，不改变代码结构
+> 不同测试用例仅改变 JSON 配置，不改变代码
+
+---
+
+## 配置文件格式
+
+`test_config.json`:
+```json
+{
+  "operator": "<opname>",
+  "tolerance": {
+    "atol": 1e-5,
+    "rtol": 1e-5
+  },
+  "test_cases": [
+    {
+      "name": "baseline",
+      "batch_size": 4,
+      "seq_len": 128,
+      "hidden_size": 256,
+      "dtype": "float32"
+    },
+    {
+      "name": "small",
+      "batch_size": 1,
+      "seq_len": 16,
+      "hidden_size": 64
+    }
+  ]
+}
+```
 
 ---
 
@@ -41,49 +73,52 @@ test_<opname>.py - 算子测试文件
 
 输入抽象化设计：
 - make_inputs(**config) 统一构造输入
-- run_cpu/run_npu 封装调用
-- 不同测试仅修改 TEST_CONFIGS 参数
+- 测试配置从 test_config.json 读取
 """
+import json
 import torch
 from <original> import <cpu_func>, <npu_func>
 
-# ============ 配置 ============
-ATOL, RTOL = 1e-5, 1e-5
+# ============ 加载配置 ============
+def load_config(config_file="test_config.json"):
+    with open(config_file, "r") as f:
+        return json.load(f)
+
+CONFIG = load_config()
+ATOL = CONFIG["tolerance"]["atol"]
+RTOL = CONFIG["tolerance"]["rtol"]
+
+# ============ dtype 映射 ============
+DTYPE_MAP = {
+    "float32": torch.float32,
+    "float16": torch.float16,
+    "bfloat16": torch.bfloat16,
+}
 
 # ============ 输入抽象层 ============
 def make_inputs(
-    batch_size=4,     # 从 __main__ 提取的默认值
+    batch_size=4,
     seq_len=128,
     hidden_size=256,
-    dtype=torch.float32,
+    dtype="float32",
     seed=0,
-    **kwargs         # 允许扩展参数
+    **kwargs
 ):
-    """
-    统一输入构造接口
-    
-    设计原则：
-    - 所有参数都有默认值（来自原 __main__）
-    - 不同测试仅传递需要变化的参数
-    - 返回 (args, kwargs) 元组供调用使用
-    """
     torch.manual_seed(seed)
+    dt = DTYPE_MAP.get(dtype, torch.float32)
     
-    # 构造输入（复制自原 __main__）
-    x = torch.randn(batch_size, seq_len, hidden_size, dtype=dtype)
-    weight = torch.ones(hidden_size, dtype=dtype)
-    bias = torch.zeros(hidden_size, dtype=dtype)
+    x = torch.randn(batch_size, seq_len, hidden_size, dtype=dt)
+    weight = torch.ones(hidden_size, dtype=dt)
+    bias = torch.zeros(hidden_size, dtype=dt)
     
     return (x, weight, bias), {}
 
 # ============ 封装调用 ============
 def run_cpu(**config):
-    """运行 CPU 实现"""
     args, kwargs = make_inputs(**config)
     return <cpu_func>(*args, **kwargs)
 
 def run_npu(**config):
-    """运行 NPU 实现"""
     try:
         import torch_npu
     except ImportError:
@@ -94,7 +129,6 @@ def run_npu(**config):
     return <npu_func>(*npu_args, **kwargs)
 
 def compare(cpu_out, npu_out):
-    """对比结果"""
     if npu_out is None:
         return "SKIP", None
     npu_cpu = npu_out.cpu()
@@ -103,23 +137,17 @@ def compare(cpu_out, npu_out):
         return "PASS", max_diff
     return "FAIL", max_diff
 
-# ============ 测试配置 ============
-# 初始只包含 baseline（复现 __main__）
-TEST_CONFIGS = [
-    {"name": "baseline", "batch_size": 4, "seq_len": 128, "hidden_size": 256},
-]
-
 # ============ 运行测试 ============
 def run_all():
     results = []
-    for cfg in TEST_CONFIGS:
+    for cfg in CONFIG["test_cases"]:
+        cfg = cfg.copy()
         name = cfg.pop("name")
         cpu_out = run_cpu(**cfg)
         npu_out = run_npu(**cfg)
         status, diff = compare(cpu_out, npu_out)
         print(f"[{name}] {status}" + (f" (diff={diff:.2e})" if diff else ""))
         results.append({"name": name, "status": status, "diff": diff, **cfg})
-        cfg["name"] = name
     return results
 
 if __name__ == "__main__":

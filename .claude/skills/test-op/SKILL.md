@@ -64,7 +64,7 @@ description: 算子精度测试入口 - 四阶段工作流
 |------|-------|------|
 | 1. 分析 | `/analyze-operator` | `logs/analyze_result.md` |
 | 2. 规划 | `/plan-and-confirm` | `logs/test_plan.md` |
-| 3. 编写验证 | `/write-and-verify` | `test_<opname>.py` + `logs/verify_result.md` |
+| 3. 编写验证 | `/write-and-verify` | `test_<opname>.py` + `test_config.json` + `logs/verify_result.md` |
 | 4. 扩展报告 | `/extend-and-report` | CSV + `logs/test_report.md` |
 
 ---
@@ -155,6 +155,7 @@ TEST_CONFIGS = [
 | `logs/analyze_result.md` | 分析 | 分析结果 |
 | `logs/test_plan.md` | 规划 | 测试计划 |
 | `test_<opname>.py` | 编写验证 | 测试文件 |
+| `test_config.json` | 编写验证 | 测试配置 |
 | `logs/verify_result.md` | 编写验证 | 验证结果 |
 | `results_<opname>_<ts>.csv` | 扩展报告 | 详细测试结果 |
 | `logs/test_report.md` | 扩展报告 | 测试报告 |
