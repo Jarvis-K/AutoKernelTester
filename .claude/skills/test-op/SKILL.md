@@ -1,6 +1,6 @@
 ---
 name: test-op
-description: PyTorch 算子精度测试入口 - 路由到 restructure、plan、execute 技能
+description: 算子精度测试入口 - 四阶段工作流
 ---
 
 # 算子精度测试
@@ -23,135 +23,134 @@ description: PyTorch 算子精度测试入口 - 路由到 restructure、plan、e
     │
     ▼
 ┌─────────────────────────────────────┐
-│  阶段 1：重构                        │
-│  → /restructure-operator            │
-│  → 生成 test_<opname>.py + 验证     │
-│  → 🔴 停止，请求用户确认            │
+│  阶段 1：分析                        │
+│  → /analyze-operator                 │
+│  → 识别 CPU/NPU 入口 + 提取 __main__ │
+│  → 🔴 展示分析结果，请求确认         │
 └─────────────────────────────────────┘
     │ 用户确认 ✓
     ▼
 ┌─────────────────────────────────────┐
 │  阶段 2：规划                        │
-│  → /plan-operator-test              │
-│  → 生成测试计划                     │
-│  → 🔴 停止，请求用户批准            │
+│  → /plan-and-confirm                 │
+│  → 生成测试计划                      │
+│  → 🔴 展示计划，请求批准             │
 └─────────────────────────────────────┘
     │ 用户批准 ✓
     ▼
 ┌─────────────────────────────────────┐
-│  阶段 3：执行                        │
-│  → /execute-operator-test           │
-│  → 运行测试 + 导出 CSV + 报告       │
-│  → 🔴 展示结果，询问后续            │
+│  阶段 3：编写与验证                  │
+│  → /write-and-verify                 │
+│  → 生成 test_<opname>.py             │
+│  → 循环验证直至复现原 __main__ 测试   │
+│  → 🔴 验证通过后请求确认             │
+└─────────────────────────────────────┘
+    │ 用户确认 ✓
+    ▼
+┌─────────────────────────────────────┐
+│  阶段 4：扩展与报告                  │
+│  → /extend-and-report                │
+│  → 添加扩展用例，运行全部测试        │
+│  → 导出 CSV，生成报告                │
+│  → 🔴 展示结果                       │
 └─────────────────────────────────────┘
 ```
 
 ---
 
-## 用户交互模式
+## 各阶段职责
 
-### 每阶段结束时的标准询问
+| 阶段 | Skill | 输出 |
+|------|-------|------|
+| 1. 分析 | `/analyze-operator` | 入口函数 + `__main__` 逻辑 |
+| 2. 规划 | `/plan-and-confirm` | `logs/test_plan.md` |
+| 3. 编写验证 | `/write-and-verify` | `test_<opname>.py` (baseline 通过) |
+| 4. 扩展报告 | `/extend-and-report` | CSV + `logs/test_report.md` |
 
-**阶段 1 完成后：**
-```
-✅ 重构完成。请查看：
-- 测试文件：test_<算子名>.py
-- 校验 CSV：golden_results_xxx.csv
+---
 
-❓ 有以下不确定点需要确认：
-1. [列出识别的 CPU/NPU 入口函数]
-2. [列出测试用例覆盖情况]
+## 核心设计：输入抽象化
 
-请回复：
-- "继续" - 进入规划阶段
-- "调整 xxx" - 我会根据反馈修改并更新
-- "查看 xxx" - 我会解释具体细节
-```
+```python
+# 测试文件结构
+def make_inputs(**config):
+    """统一输入构造，不同测试仅改变参数"""
+    pass
 
-**阶段 2 完成后：**
-```
-✅ 测试计划已生成：logs/test_op_plan.md
+def run_cpu(**config): ...
+def run_npu(**config): ...
 
-❓ 以下推断可能需要确认：
-1. [执行模式推断：prefill/decode]
-2. [形状覆盖范围]
-3. [容差设置]
-
-请回复：
-- "批准" - 开始执行测试
-- "调整 xxx" - 我会修改计划
-- "增加 xxx 场景" - 我会补充用例
-```
-
-**阶段 3 完成后：**
-```
-✅ 测试完成：N/M 通过
-
-📊 结果摘要：
-- 通过率：xx%
-- 失败用例：[列表]
-- CSV：golden_results_xxx.csv
-- 报告：logs/test_op_report.md
-
-❓ 后续建议：
-1. [根据失败情况的建议]
-
-请回复：
-- "完成" - 结束测试流程
-- "重跑 xxx" - 针对特定 case 重测
-- "查看 xxx" - 查看详细失败信息
+TEST_CONFIGS = [
+    {"name": "baseline", ...},  # 复现 __main__
+    {"name": "small", ...},     # 扩展用例
+]
 ```
 
 ---
 
-## 反馈沉淀机制
+## 用户交互示例
 
-用户的每次反馈都会被记录并更新到对应产物中：
+### 阶段 1 完成后
+```
+📖 算子分析结果
 
-| 用户反馈 | 沉淀位置 |
-|---------|---------|
-| 入口映射调整 | `test_<opname>.py` 的 import |
-| 形状建议 | `logs/test_op_plan.md` 更新覆盖轴 |
-| 容差调整 | `test_<opname>.py` 的 ATOL/RTOL |
-| 场景补充 | `test_<opname>.py` 添加新测试函数 |
-| 分支参数 | `logs/test_op_plan.md` 更新参数表 |
+入口函数：
+- CPU: xxx_cpu(x, weight, bias)
+- NPU: xxx_npu(x, weight, bias)
 
----
+默认配置：batch=4, seq=128, hidden=256
 
-## 各阶段详细说明
+❓ 请确认后继续规划阶段。
+```
 
-### 阶段 1：重构
+### 阶段 2 完成后
+```
+📋 测试计划
 
-阅读：`.claude/skills/restructure-operator/SKILL.md`
+基础测试：复现 __main__
+扩展测试：6 个用例
 
-- 分析原文件，识别 CPU/NPU 入口函数
-- 生成 `test_<opname>.py`，直接 import 原函数
-- 运行 Golden 验证
-- 导出 CSV 校验结果
+❓ 请批准或调整。
+```
 
-### 阶段 2：规划
+### 阶段 3 完成后
+```
+✅ Baseline 验证通过
 
-阅读：`.claude/skills/plan-operator-test/SKILL.md`
+测试文件：test_xxx.py
+结果：PASS (max_diff=1.2e-7)
 
-- 基于参数说明推断执行模式
-- 生成 prefill/decode 测试场景
-- 设置覆盖轴与容差
-- 输出 `logs/test_op_plan.md`
+❓ 请确认后继续扩展测试。
+```
 
-### 阶段 3：执行
+### 阶段 4 完成后
+```
+✅ 测试完成：6/6 通过
 
-阅读：`.claude/skills/execute-operator-test/SKILL.md`
+📁 产物：
+- CSV：results_xxx_20260205.csv
+- 报告：logs/test_report.md
 
-- 运行 `test_<opname>.py`
-- 收集测试结果
-- 输出测试报告与 CSV
+请回复 "完成" 结束。
+```
 
 ---
 
 ## 重要规则
 
-1. **始终从重构开始** - 每个算子先经过重构
-2. **不跳过阶段** - 按顺序：重构 → 规划 → 执行
-3. **阶段之间等待用户确认**
+1. **按顺序执行**：分析 → 规划 → 编写验证 → 扩展报告
+2. **每阶段等待用户确认**
+3. **Baseline 必须先通过**：复现原 `__main__` 测试后才能扩展
 4. **不确定的点主动询问用户**
-5. **用户反馈沉淀到产物中**
+5. **用户反馈沉淀到对应产物中**
+
+---
+
+## 产物汇总
+
+| 产物 | 说明 |
+|------|------|
+| `test_<opname>.py` | 测试文件（输入抽象化） |
+| `logs/test_plan.md` | 测试计划 |
+| `logs/test_report.md` | 测试报告 |
+| `results_<opname>_<ts>.csv` | 详细测试结果 |
