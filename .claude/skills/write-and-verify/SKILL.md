@@ -225,11 +225,22 @@ if __name__ == "__main__":
 
 ---
 
-## 验证流程
+## 验证流程（TDD）
 
-### 步骤 1：生成测试文件
+> [!IMPORTANT]
+> **TDD 验证：对比期望输出**
+> 
+> 加载 `logs/expected_output.json`，逐项对比实际输出
 
-根据分析结果，生成 `test_<opname>.py`
+### 步骤 1：加载期望输出
+
+```python
+def load_expected():
+    with open("logs/expected_output.json") as f:
+        return json.load(f)
+
+EXPECTED = load_expected()
+```
 
 ### 步骤 2：运行 baseline 测试
 
@@ -237,14 +248,51 @@ if __name__ == "__main__":
 python test_<opname>.py
 ```
 
-### 步骤 3：对比验证
+### 步骤 3：逐项对比验证
 
-| 检查项 | 期望 |
-|--------|------|
-| 脚本能否运行 | 无报错 |
-| baseline 结果 | PASS |
-| 输出形状 | 与原 `__main__` 一致 |
-| 数值差异 | 在容差范围内 |
+```python
+def verify_against_expected(cpu_out, npu_out, expected):
+    """TDD 验证：逐项对比期望输出"""
+    checks = []
+    
+    # 1. Shape 验证
+    cpu_shape = list(cpu_out.shape)
+    exp_shape = expected["expected_results"]["cpu_shape"]
+    checks.append(("cpu_shape", cpu_shape == exp_shape, cpu_shape, exp_shape))
+    
+    # 2. Dtype 验证
+    cpu_dtype = str(cpu_out.dtype)
+    exp_dtype = expected["expected_results"]["cpu_dtype"]
+    checks.append(("cpu_dtype", cpu_dtype == exp_dtype, cpu_dtype, exp_dtype))
+    
+    # 3. Sample values 验证（前5个值）
+    cpu_first_5 = cpu_out.flatten()[:5].tolist()
+    exp_first_5 = expected["sample_values"]["cpu_first_5"]
+    values_close = all(abs(a - b) < 1e-5 for a, b in zip(cpu_first_5, exp_first_5))
+    checks.append(("sample_values", values_close, cpu_first_5, exp_first_5))
+    
+    # 4. Max diff 验证
+    if npu_out is not None:
+        max_diff = (cpu_out - npu_out.cpu()).abs().max().item()
+        exp_diff = expected["expected_results"]["max_diff"]
+        diff_ok = max_diff <= exp_diff * 1.5  # 允许 50% 浮动
+        checks.append(("max_diff", diff_ok, max_diff, exp_diff))
+    
+    return checks
+```
+
+### 步骤 4：输出验证报告
+
+```
+✅ TDD 验证结果
+
+| 检查项 | 期望 | 实际 | 结果 |
+|--------|------|------|------|
+| cpu_shape | [4,128,256] | [4,128,256] | ✅ |
+| cpu_dtype | torch.float32 | torch.float32 | ✅ |
+| sample_values | [0.123,-0.456,...] | [0.123,-0.456,...] | ✅ |
+| max_diff | 1.23e-7 | 1.21e-7 | ✅ |
+```
 
 ### 步骤 4：迭代修正
 

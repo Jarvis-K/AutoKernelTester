@@ -148,11 +148,23 @@ TEST_CONFIGS = [
 
 ---
 
+## 防幻觉原则（TDD）
+
+> [!CAUTION]
+> 1. **先运行，后推理** - 运行原 `__main__` 获取期望输出，不假设
+> 2. **不假设参数** - 从运行结果反推，而非从代码推断
+> 3. **不假设输出** - 必须运行原代码获取期望值
+> 4. **保留证据** - 期望值保存到 `logs/expected_output.json`，可追溯
+> 5. **逐项对比** - 验证时按 shape → dtype → values 顺序检查
+
+---
+
 ## 产物汇总
 
 | 产物 | 阶段 | 说明 |
 |------|------|------|
 | `logs/analyze_result.md` | 分析 | 分析结果 |
+| `logs/expected_output.json` | 分析 | 期望输出（TDD 基准） |
 | `logs/test_plan.md` | 规划 | 测试计划 |
 | `test_<opname>.py` | 编写验证 | 测试文件 |
 | `test_config.json` | 编写验证 | 测试配置 |
