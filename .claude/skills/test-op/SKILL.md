@@ -166,7 +166,8 @@ TEST_CONFIGS = [
 | `logs/analyze_result.md` | 分析 | 分析结果 |
 | `logs/expected_output.json` | 分析 | 期望输出（TDD 基准） |
 | `logs/test_plan.md` | 规划 | 测试计划 |
-| `test_<opname>.py` | 编写验证 | 测试文件 |
+| `test_<opname>.py` | 编写验证 | 单 case 测试脚本 |
+| `run_tests.sh` | 编写验证 | Shell 循环脚本 |
 | `test_config.json` | 编写验证 | 测试配置 |
 | `logs/verify_result.md` | 编写验证 | 验证结果 |
 | `results_<opname>_<ts>.csv` | 扩展报告 | 详细测试结果 |
